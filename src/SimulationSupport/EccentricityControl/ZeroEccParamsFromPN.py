@@ -1,3 +1,6 @@
+# fmt: off
+# isort: skip_file
+
 """
 This code was only very slightly changed from the SpEC implementation and should
 be modernized. It was kept in its original form to make transitioning from SpEC
