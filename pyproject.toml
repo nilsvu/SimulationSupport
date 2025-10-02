@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "SimulationSupport"
+version = "0.1.0"
+description = "Support for SpEC and SpECTRE simulations"
+readme = "README.md"
+license = {file = "LICENSE"}
+authors = [{name = "SXS collaboration"}]
+requires-python = ">=3.9"
+dependencies = [
+    "numpy",
+    "scipy",
+]
+
+[project.optional-dependencies]
+dev = [
+    "black",
+    "isort",
+    "pytest",
+]
+docs = [
+    "sphinx>=7.2",
+    "furo>=2024.7.18",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+target-version = ["py39"]
+line-length = 80
+preview = "true"
+enable-unstable-feature = ["string_processing"]
+
+[tool.isort]
+profile = "black"
+line_length = 80
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+python_files = ["Test_*.py"]

@@ -1,0 +1,3 @@
+# Ignore documentation build artifacts
+_build/
+.DS_Store
