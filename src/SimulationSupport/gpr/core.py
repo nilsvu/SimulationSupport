@@ -2,21 +2,25 @@
 # See LICENSE.txt for details.
 
 """
-Gaussian Process Regression Machine Learning Function Library.
-Contains all functions necessary to run the GPR Model used to predict better
-low-eccentricity orbital parameter initial guesses.
+Gaussian Process Regression machine learning library containing all core functions
+necessary to run the GPR Model used to predict better
+zero-eccentricity orbital parameter initial guesses.
 """
+
+import logging
 
 import gpytorch
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
+logger = logging.getLogger(__name__)
+
 
 class GPRegressionModel(gpytorch.models.ExactGP):
     """
-    This class derives from gpytorch.models.ExactGP an infinite number of basis functions;
-    GP is non-parametric and models functions globally; is limited only by training points
+    This class uses gpytorch.models.ExactGP to derive an infinite number of basis functions;
+    GP is non-parametric and models functions globally; it is limited only by the training points
 
     Exact GP with a mixture of RBF and Matern kernels, a linear mean function,
     and normalization capabilities for inputs and outputs.
@@ -30,7 +34,7 @@ class GPRegressionModel(gpytorch.models.ExactGP):
     def __init__(self, train_x, train_y, likelihood):
         super(GPRegressionModel, self).__init__(train_x, train_y, likelihood)
 
-        # Supports all dimensions (ie GPR can be run from 1-8 dimensions)
+        # Supports all dimensions (ie same functions are used whether system is 1 dimension or 8)
         input_dim = train_x.shape[1] if train_x.dim() > 1 else 1
 
         # Define base kernels
@@ -87,19 +91,16 @@ class GPRegressionModel(gpytorch.models.ExactGP):
         """
         return (Y_normalized * self.output_std) + self.output_mean
 
-    def forward(self, x, normalize_input=False):
+    def forward(self, x):
         """
         Forward pass with optional input normalization.
 
         Args:
             x (torch.Tensor): Input data
-            normalize_input (bool): If True, normalize x using stored parameters.
 
         Returns:
             gpytorch.distributions.MultivariateNormal: Distribution for the input.
         """
-        if normalize_input:
-            x = self.normalize_input(x)
         mean_x = self.mean_module(x)
         covar_x = self.covar_module(x)
         return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
@@ -128,7 +129,7 @@ def train_gpr_model(raw_X, raw_Y):
     normalized_X = (raw_X - input_mean) / input_std
     normalized_Y = (raw_Y - output_mean) / output_std
 
-    # Ensure X is proper dimension
+    # Ensure X is the proper dimension
     if normalized_X.ndim == 1:
         normalized_X = normalized_X.reshape(-1, 1)
 
@@ -269,7 +270,7 @@ def run_gpr_pipeline(X, Y, target_name="target", plot=True, silent=False):
         Y (np.ndarray): Target output deltas.
         target_name (str): For labeling plots & output.
         plot (bool): whether to produce correlation plots.
-        silent (bool): whether to suppress print statements entirely.
+        silent (bool): whether to suppress log statements entirely.
 
     Returns:
         model
@@ -330,9 +331,139 @@ def run_gpr_pipeline(X, Y, target_name="target", plot=True, silent=False):
         plt.show()
 
     if not silent:
-        # Print performance metrics regardless of plotting
-        print(f"R²: goal: > 0.95 excellent, > 0.90 good, < 0.70 poor")
-        print(f"RMSE goal: < 1 % of target range, lower is better")
-        print(f"MAE goal: < 1 % of target range, lower is better")
+        logger.info("R²: goal: > 0.95 excellent, > 0.90 good, < 0.70 poor")
+        logger.info("RMSE goal: < 1 % of target range, lower is better")
+        logger.info("MAE goal: < 1 % of target range, lower is better")
 
     return model, likelihood, Y_pred
+
+
+# Function to build and save a checkpoint file
+def save_gpr_checkpoint(
+    model, likelihood, features, output_name, run_col, base_column, X, Y, path
+):
+    """
+    Save trained GPR model, including the raw training data, so the checkpoint
+    is self-contained and reloadable without external files.
+    """
+    # Build checkpoint dictionary
+    ckpt = {
+        # Version number
+        "version": 1,
+        # All learned parameters of the GP model and the likelihood
+        "model_state_dict": (
+            model.state_dict()
+        ),  # contains all the trainable parameters (tensors)
+        "likelihood_state_dict": likelihood.state_dict(),
+        # Store metadata - describes what the model expects and predicts
+        "metadata": {
+            "input_features": (
+                features
+            ),  # extract input columns in the order GP expects - e.g. initial_separation, mass_ratio, etc
+            "output_name": (
+                output_name
+            ),  # what quantity the model is trained to predict corrections for - e.g. omega or adot
+            "base_column": [
+                base_column
+            ],  # baseline column that delta will be added to - e.g. spec_pn_guess_omega
+            "target_definition": {  # what the delta is
+                "formula": "run values - PN guess",
+                "run_col": run_col,
+                "base_column": base_column,
+            },
+        },
+        # Store normalization statistics needed for inference
+        "normalization": {
+            "input_mean": model.input_mean.tolist(),
+            "input_std": model.input_std.tolist(),
+            "output_mean": float(model.output_mean),
+            "output_std": float(model.output_std),
+        },
+        # Store raw training data as tensors for torch.save
+        "training_data": {
+            "X": torch.as_tensor(np.asarray(X), dtype=torch.float),
+            "Y": torch.as_tensor(np.asarray(Y), dtype=torch.float),
+        },
+    }
+
+    # Save entire dictionary to disk as a .pth file in the current working directory
+    torch.save(ckpt, path)
+    logger.info(f"Saved {output_name} checkpoint → {path}")
+
+
+# Load, open, and read saved GPR from disk
+def load_gpr_checkpoint(ckpt_path):
+    """
+    Loads a saved Gaussian Process Regression (GPR) model from disk.
+    Restores model weights, likelihood, normalization parameters,
+    and the raw training data.
+
+    Args:
+        ckpt_path (str): Path to the checkpoint file.
+
+    Returns:
+        model (GPRegressionModel): Loaded GPR model.
+        likelihood (GaussianLikelihood): Loaded likelihood.
+        meta (dict): Metadata including input features.
+    """
+    # Load the checkpoint file
+    ckpt = torch.load(ckpt_path, map_location="cpu")
+
+    # Check version for compatibility
+    if ckpt["version"] != 1:
+        raise ValueError(
+            f"Incorrect checkpoint version {ckpt['version']} in {ckpt_path}."
+        )
+
+    # Unpack metadata
+    meta = ckpt["metadata"]
+    features = meta["input_features"]
+
+    # Restore normalization stats  - needed to normalize the saved raw
+    # training data, since the model's learned parameters are normalized
+    norm = ckpt["normalization"]
+    input_mean = np.array(norm["input_mean"])
+    input_std = np.array(norm["input_std"])
+    output_mean = norm["output_mean"]
+    output_std = norm["output_std"]
+
+    # Reconstruct the tensors and normalize
+    training_data = ckpt["training_data"]
+    raw_X = training_data["X"].numpy()
+    raw_Y = training_data["Y"].numpy()
+
+    normalized_X = (raw_X - input_mean) / input_std
+    if normalized_X.ndim == 1:
+        normalized_X = normalized_X.reshape(-1, 1)
+    normalized_Y = (raw_Y - output_mean) / output_std
+
+    train_x = torch.from_numpy(normalized_X).float()
+    train_y = torch.from_numpy(normalized_Y).float()
+
+    # Initialize likelihood and model
+    likelihood = (
+        gpytorch.likelihoods.GaussianLikelihood()
+    )  # represents assumed noise model of the data
+    model = GPRegressionModel(
+        train_x, train_y, likelihood
+    )  # constructs model object
+
+    # Load trained parameters back into model and likelihood
+    # and overwrite dummy inputs
+    model.load_state_dict(ckpt["model_state_dict"])
+    likelihood.load_state_dict(ckpt["likelihood_state_dict"])
+
+    # Restore the normalization statistics used during training
+    # so that the predictions are correctly scaled back to the original units
+    model.set_normalization(
+        input_mean=input_mean,  # mean of training features
+        input_std=input_std,  # standard deviation of training features
+        output_mean=output_mean,  # mean of training targets (deltas)
+        output_std=output_std,  # standard deviation of training targets (deltas)
+    )
+
+    # Switch to evaluation mode before inference
+    model.eval()
+    likelihood.eval()
+
+    return model, likelihood, meta
