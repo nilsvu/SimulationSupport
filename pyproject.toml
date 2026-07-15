@@ -17,6 +17,7 @@ dependencies = [
     "torch",
     "gpytorch",
     "pandas",
+    "sxs",
 ]
 
 [project.optional-dependencies]
