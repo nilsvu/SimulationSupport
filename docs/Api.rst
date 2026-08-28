@@ -5,3 +5,8 @@ API Reference
    :members:
    :undoc-members:
    :show-inheritance:
+
+.. automodule:: SimulationSupport.EccentricityControl.EccentricityControlParams
+   :members:
+   :undoc-members:
+   :show-inheritance:
