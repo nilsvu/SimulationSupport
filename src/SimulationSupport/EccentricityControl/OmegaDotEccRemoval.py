@@ -1512,7 +1512,7 @@ def performNonspinVarPro(t,dOmegadt,idxFit,tFit,dOmegadtFit,
   # Calculate quantities for correction formulae
   B_nonspin = np.sqrt(pLin_nonspin[2]**2 + pLin_nonspin[3]**2)
   B_std_dev = sqrt(pLin_nonspin[2]**2 * param_std_dev_nonspin[2]**2 \
-                 + pLin_nonspin[3]**2 * param_std_dev_nonspin[3]) / B_nonspin
+                 + pLin_nonspin[3]**2 * param_std_dev_nonspin[3]**2) / B_nonspin
   phi_nonspin = np.arctan2(pLin_nonspin[3], pLin_nonspin[2])
   # phi should be constrained to (0, 2pi),
   # but np.arctan2 is constrained to (-pi, pi)
